@@ -1,0 +1,20 @@
+{
+  "name": "youtube-playcount",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.0.0",
+    "node-fetch": "^3.3.2"
+  },
+  "description": "��#\u0000 \u0000s\u0000o\u0000m\u0000a\u0000-\u0000y\u0000o\u0000u\u0000t\u0000u\u0000b\u0000e\u0000-\u0000p\u0000l\u0000a\u0000y\u0000c\u0000o\u0000u\u0000n\u0000t\u0000\r\u0000 \u0000#\u0000 \u0000s\u0000o\u0000m\u0000a\u0000-\u0000y\u0000o\u0000u\u0000t\u0000u\u0000b\u0000e\u0000-\u0000p\u0000l\u0000a\u0000y\u0000c\u0000o\u0000u\u0000n\u0000t\u0000\r\u0000 \u0000",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
