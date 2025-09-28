@@ -1,103 +1,48 @@
-/* index.js -- ES module */
-import 'dotenv/config'; // ローカル実行時のみ .env を読み込む
-import { createClient } from '@supabase/supabase-js';
+import "dotenv/config";
+import fetch from "node-fetch";
+import { createClient } from "@supabase/supabase-js";
 
-// 環境変数を読み込む
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
+);
+
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
 
-// 確認ログ（先頭10文字だけ表示）
-console.log('YOUTUBE_API_KEY starts with:', YOUTUBE_API_KEY?.substring(0, 10));
-console.log('SUPABASE_URL:', SUPABASE_URL);
-console.log('SUPABASE_SERVICE_ROLE_KEY starts with:', SUPABASE_SERVICE_ROLE_KEY?.substring(0, 10));
-
-if (!YOUTUBE_API_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  console.error('Missing one of required env vars: YOUTUBE_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY');
-  process.exit(1);
-}
-
-// Supabase クライアント（service_role を使うことで RLS を回避）
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-async function fetchVideosFromDB() {
-  const { data, error } = await supabase.from('videos').select('id, title, group_type');
-  if (error) {
-    console.error('Error fetching videos from DB:', JSON.stringify(error, null, 2));
-    throw error;
-  }
-  return data || [];
-}
-
-async function fetchViewCount(videoId) {
-  const url = `https://www.googleapis.com/youtube/v3/videos?part=statistics&id=${encodeURIComponent(videoId)}&key=${encodeURIComponent(YOUTUBE_API_KEY)}`;
+async function fetchVideoStats(videoId) {
+  const url = `https://www.googleapis.com/youtube/v3/videos?part=statistics&id=${videoId}&key=${YOUTUBE_API_KEY}`;
   const res = await fetch(url);
-  const text = await res.text();
-  let json;
-  try {
-    json = JSON.parse(text);
-  } catch (e) {
-    throw new Error(`YouTube API returned non-JSON. status=${res.status} body=${text}`);
-  }
-  if (!res.ok) {
-    throw new Error(`YouTube API error status=${res.status} body=${JSON.stringify(json)}`);
-  }
-  const item = json.items?.[0];
-  const viewCount = item?.statistics?.viewCount ?? null;
-  return viewCount !== null ? Number(viewCount) : null;
-}
-
-async function insertPlayCounts(records) {
-  if (!records.length) return;
-  // insert と同時に inserted rows を返す .select('*')
-  const { data, error } = await supabase.from('play_counts').insert(records).select();
-  if (error) {
-    // ここが空文字になる事象が過去に発生していました -> ログを膨らませて出す
-    console.error('Supabase insert returned error:', JSON.stringify(error, null, 2));
-    // 追加デバッグ: PostgreSQL 側からのレスポンスが取れない場合もあるため、records をログ
-    console.error('Attempted insert payload sample (first 5):', JSON.stringify(records.slice(0,5), null, 2));
-    throw error;
-  }
-  console.log('Inserted rows count:', data?.length ?? 0);
-  return data;
+  const data = await res.json();
+  return data.items?.[0]?.statistics?.viewCount || null;
 }
 
 async function main() {
-  try {
-    const videos = await fetchVideosFromDB();
-    console.log('🎬 videos 配列:', videos);
+  // 1. Supabaseから動画リスト取得
+  const { data: videos, error } = await supabase.from("videos").select("*");
+  if (error) {
+    console.error("動画取得エラー:", error);
+    return;
+  }
 
-    const now = new Date().toISOString();
-    const toInsert = [];
+  console.log("🎬 登録済み動画:", videos);
 
-    for (const v of videos) {
-      try {
-        const views = await fetchViewCount(v.id);
-        if (views === null) {
-          console.warn(`No statistics for ${v.id} (${v.title})`);
-          continue;
-        }
-        console.log(`▶ ${v.title}: ${views} views`);
-        toInsert.push({
-          video_id: v.id,
-          title: v.title,
-          views,
-          group_type: v.group_type ?? 'unknown',
-          recorded_at: now
-        });
-      } catch (err) {
-        console.error(`YouTube fetch error for ${v.id}:`, err.message ?? err);
-      }
+  // 2. 各動画の再生数を取得して保存
+  for (const video of videos) {
+    const views = await fetchVideoStats(video.id);
+    console.log(`▶ ${video.title}: ${views} views`);
+
+    // 3. Supabaseにログを追加
+    const { error: insertError } = await supabase.from("video_logs").insert([
+      {
+        video_id: video.id,
+        views: views,
+        created_at: new Date().toISOString(),
+      },
+    ]);
+
+    if (insertError) {
+      console.error("Insert error:", insertError);
     }
-
-    if (toInsert.length) {
-      await insertPlayCounts(toInsert);
-    } else {
-      console.log('No records to insert.');
-    }
-  } catch (err) {
-    console.error('Fatal error:', err);
-    process.exit(1);
   }
 }
 
